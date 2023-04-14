@@ -249,14 +249,14 @@ def main(config: OmegaConf):
 
     def f(input):
             print("explainer start with input", input)
-            input_tokens = [model.dataset.vocab.convert_to_tensor(tokens) for tokens in input]
-            input_tokens = torch.stack(input_tokens, dim=0)
+            # input_tokens = [model.dataset.vocab.convert_to_tensor(tokens) for tokens in input]
+            # input_tokens = torch.stack(input, dim=0)
             # breakpoint()
             # input = tokenize(input)
-            print("tokenized with input", input_tokens)
+            # print("tokenized with input", input_tokens)
             # Generate
             assert config.n_samples % config.n_batch == 0, "For convenience, n_samples should be a multiple of n_batch"
-            batch = (input_tokens.repeat(config.n_reps, 1), None, None)
+            batch = (input.repeat(config.n_reps, 1), None, None)
 
             y, logprobs, _ = generate(
                     model, # lightning module (SequenceLightningModule from `train.py`)
@@ -287,7 +287,7 @@ def main(config: OmegaConf):
                 print("shap forward pass done with output", y_val.shape)
                 # scores = (np.exp(logprobs.flatten()).T / np.exp(logprobs.flatten()).sum(-1)).T
                 # val = sp.special.logit(scores[:,1])
-                return y_val
+                return y_val#[None, :]
 
 
     # input, truth, _ = next(iter(dl))
@@ -304,6 +304,7 @@ def main(config: OmegaConf):
 
     # Generate
     assert config.n_samples % config.n_batch == 0, "For convenience, n_samples should be a multiple of n_batch"
+    # input = []
     y = []
     logprobs =  []
     for _ in range(config.n_samples // config.n_batch):
@@ -324,10 +325,12 @@ def main(config: OmegaConf):
             return_logprobs=True, # calc exact likelihoods
             multiplier=config.multiplier,
         )
+        # input.append(x)
         y.append(_y)
         logprobs.append(_logprobs)
 
     # Sort based on likelihoods and save
+    # input = torch.cat(input, dim=0)
     y = torch.cat(y, dim=0)
     logprobs = np.concatenate(logprobs, axis=0)
     y = y[np.argsort(logprobs.flatten())]
@@ -351,22 +354,40 @@ def main(config: OmegaConf):
         print('x', x_val, x, x_sentences)
         print('y', y_val, y, y_sentences)
         
-        shap.initjs()
+        # shap.initjs()
+        
+        def mask_func(mask, input):
+            print('x', input)
+            tokenized_sentence = model.dataset.vocab.tokenize(input[0])
+            tensor = model.dataset.vocab.convert_to_tensor(tokenized_sentence)
+            print('x_tensor', tensor)
+            return (tensor * mask).reshape(1, len(tensor))
         
         # explainer = shap.Explainer(f, np.array(x_sentences))
         # shap_values = explainer(np.array(x_sentences))
         # breakpoint()
         labels = sorted(model.dataset.vocab.sym2idx, key=model.dataset.vocab.sym2idx.get)
         # labels = list(model.dataset.vocab.sym2idx.values())
-        masker = shap.maskers.Text(tokenize)
+        # masker = shap.maskers.Text(tokenize)
+        masker = mask_func
         # masker = shap.maskers.Text(r"\W")
         # masker = x_val
-        explainer = shap.Explainer(f, masker, output_names=labels) #, max_evals=16385)
+        # list of sentences (tensor) -> masker (every sentence -> every sentence masked) -> list of sentences masked -> f -> list of outputs
+        explainer = shap.Explainer(f, masker, output_names=labels, max_evals=11) #, max_evals=16385)
         # explainer = shap.explainers.Permutation(f, max_evals = len(model.dataset.vocab) * 2 + 1) # 267735 * 2 + 1
-        shap_values = explainer(x_sentences) # x_val[:,:config.l_sample])
-        breakpoint() # Inspect output manually for now
+        import pandas as pd
+        df = pd.DataFrame(data=x_sentences)
+        print(df)
+        shap_values = explainer(df, batch_size=1) # x_val[:,:config.l_sample])
+        print('success') # Inspect output manually for now
         shap.plots.text(shap_values)
-        plt.savefig('fig.png')
+        
+        breakpoint()
+        # plt.show()
+        # shap.force_plot(shap_values.base_values, shap_values, df.iloc[0,:],show=False)
+        plt.savefig('/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.html')
+        plt.show()
+        # plt.close()
     else: pass
 
 
