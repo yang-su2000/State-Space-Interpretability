@@ -287,7 +287,7 @@ def main(config: OmegaConf):
                 print("shap forward pass done with output", y_val.shape)
                 # scores = (np.exp(logprobs.flatten()).T / np.exp(logprobs.flatten()).sum(-1)).T
                 # val = sp.special.logit(scores[:,1])
-                return y_val#[None, :]
+                return logprobs#[None, :]
 
 
     # input, truth, _ = next(iter(dl))
@@ -360,8 +360,12 @@ def main(config: OmegaConf):
             print('x', input)
             tokenized_sentence = model.dataset.vocab.tokenize(input[0])
             tensor = model.dataset.vocab.convert_to_tensor(tokenized_sentence)
-            print('x_tensor', tensor)
-            return (tensor * mask).reshape(1, len(tensor))
+            # print('x_tensor', tensor)
+            mask = True
+            output = (tensor * mask).reshape(1, len(tensor))
+            print('mask', mask)
+            print('output', output)
+            return output
         
         # explainer = shap.Explainer(f, np.array(x_sentences))
         # shap_values = explainer(np.array(x_sentences))
@@ -373,20 +377,29 @@ def main(config: OmegaConf):
         # masker = shap.maskers.Text(r"\W")
         # masker = x_val
         # list of sentences (tensor) -> masker (every sentence -> every sentence masked) -> list of sentences masked -> f -> list of outputs
-        explainer = shap.Explainer(f, masker, output_names=labels, max_evals=11) #, max_evals=16385)
+        explainer = shap.Explainer(f, masker, output_names=y[0], feature_names=y[0], max_evals=2*config.l_sample+1) #, max_evals=16385)
         # explainer = shap.explainers.Permutation(f, max_evals = len(model.dataset.vocab) * 2 + 1) # 267735 * 2 + 1
         import pandas as pd
         df = pd.DataFrame(data=x_sentences)
         print(df)
+        with open("/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.html", "w") as file:
+            file.close()
         shap_values = explainer(df, batch_size=1) # x_val[:,:config.l_sample])
         print('success') # Inspect output manually for now
+        # breakpoint()
+        shap_values.output_names = y[0]
+        # breakpoint()
         shap.plots.text(shap_values)
-        
-        breakpoint()
+        # breakpoint()
+        # with open("/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.html", "w") as file:
+        #     file.write(html.data)
         # plt.show()
-        # shap.force_plot(shap_values.base_values, shap_values, df.iloc[0,:],show=False)
-        plt.savefig('/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.html')
-        plt.show()
+        # df_val = pd.DataFrame(data=x, dtype=int)
+        # shap.summary_plot(shap_values[0,:].base_values, x_val[0][None,:])
+        # shap.force_plot(shap_values.base_values, shap_values.values[0,:], df_val.iloc[0,:], show=False, matplotlib=True) \
+        #     .savefig('/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.png')
+        # plt.savefig('/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.png')
+        # plt.show()
         # plt.close()
     else: pass
 
