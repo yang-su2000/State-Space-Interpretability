@@ -222,87 +222,6 @@ def main(config: OmegaConf):
     if config.test_model:
         test_step(model)
 
-    def tokenize(s, return_offsets_mapping=True):
-        import re
-        pos = 0
-        offset_ranges = []
-        input_ids = []
-        for m in re.finditer(r"\W", s):
-            start, end = m.span(0)
-            offset_ranges.append((pos, start))
-            input_ids.append(s[pos:start])
-            pos = end
-        if pos != len(s):
-            offset_ranges.append((pos, len(s)))
-            input_ids.append(s[pos:])
-        out = {}
-        out["input_ids"] = input_ids
-        if return_offsets_mapping:
-            out["offset_mapping"] = offset_ranges
-        print(out)
-        return out
-        # print('sentence', s)
-        # tokenized_sentence = model.dataset.vocab.tokenize(s)
-        # tensor = model.dataset.vocab.convert_to_tensor(tokenized_sentence)
-        # print('tensor', tensor)
-        # return tensor
-
-    def f(input):
-            print("explainer start with input", input)
-            # input_tokens = [model.dataset.vocab.convert_to_tensor(tokens) for tokens in input]
-            # input_tokens = torch.stack(input, dim=0)
-            # breakpoint()
-            # input = tokenize(input)
-            # print("tokenized with input", input_tokens)
-            # Generate
-            assert config.n_samples % config.n_batch == 0, "For convenience, n_samples should be a multiple of n_batch"
-            batch = (input.repeat(config.n_reps, 1), None, None)
-
-            y, logprobs, _ = generate(
-                    model, # lightning module (SequenceLightningModule from `train.py`)
-                    batch, # pass data to condition the generation
-                    l_prefix=config.l_prefix, # length of conditioning prefix
-                    T=config.l_sample, # length of generated sequence
-                    top_p=config.top_p, # nucleus sampling: always set to 1.0 for SaShiMi experiments
-                    tau=config.temp, # temperature: always set to 1.0 for SaShiMi experiments
-                    return_logprobs=True, # calc exact likelihoods
-            )
-            
-            # Sort based on likelihoods and save
-            y = y[np.argsort(logprobs.flatten())]
-
-            # Decode quantization
-            if config.decode == 'audio':
-                print("Saving samples into:", save_dir)
-                y = mu_law_decode(y)
-                for i, d in enumerate(y):
-                    filename = f'{save_dir}/unconditional_{config.dataset._name_}_{config.model._name_}_len_{config.l_sample/16000.:.2f}s_gen_{i+1}.wav'
-                    torchaudio.save(filename, d.unsqueeze(0), 16000)
-                np.save(f'{save_dir}/unconditional_{config.dataset._name_}_{config.model._name_}_len_{config.l_sample/16000.:.2f}s_logprobs.npy', logprobs)
-            elif config.decode == 'text':
-                # breakpoint()
-                y_val = y
-                y_sym = [model.dataset.vocab.get_symbols(_y) for _y in y]
-                y_sentences = [' '.join(_y) for _y in y_sym]
-                print("shap forward pass done with output", y_val.shape, logprobs.shape)
-                # scores = (np.exp(logprobs.flatten()).T / np.exp(logprobs.flatten()).sum(-1)).T
-                # val = sp.special.logit(scores[:,1])
-                # breakpoint()
-                return y_val#[None, :]
-
-
-    # input, truth, _ = next(iter(dl))
-    # input = input[:][:config.l_sample]
-    # truth = input[:][:config.l_sample]
-    # print('before explainer')
-    # breakpoint()
-    # explainer = shap.Explainer(f, input)
-    # # explainer = shap.explainers.Permutation(f, max_evals = len(model.dataset.vocab) * 2 + 1) # 267735 * 2 + 1
-    # shap_values = explainer(input) #np.array(x_sentences[:][:config.l_sample])) #np.array(x_val[:][:config.l_sample]))
-    # # breakpoint() # Inspect output manually for now
-    # shap.plots.text(shap_values)
-    # return
-
     # Generate
     assert config.n_samples % config.n_batch == 0, "For convenience, n_samples should be a multiple of n_batch"
     # input = []
@@ -312,6 +231,19 @@ def main(config: OmegaConf):
         # Construct a batch
         if config.load_data:
             x, _, *_ = next(iter(dl))
+            
+            # [Added code starts]
+            # customized input
+            input_sentence = 'I enjoy walking with my cute dog'
+            tokenized_sentence = model.dataset.vocab.tokenize(input_sentence)
+            x = model.dataset.vocab.convert_to_tensor(tokenized_sentence)
+            x = x[None, :]
+            # we want to predict on the full input this way
+            config.l_prefix = x.shape[1]
+            # and we want the output to be generated after the input
+            config.l_sample += x.shape[1]
+            # [Added code ends]
+            
             batch = (x.repeat(config.n_reps, 1), None, None)
         else:
             batch = (torch.zeros(config.n_batch * config.n_reps, 1).to(torch.long) + 128, None, None)
@@ -345,66 +277,93 @@ def main(config: OmegaConf):
             torchaudio.save(filename, d.unsqueeze(0), 16000)
         np.save(f'{save_dir}/unconditional_{config.dataset._name_}_{config.model._name_}_len_{config.l_sample/16000.:.2f}s_logprobs.npy', logprobs)
     elif config.decode == 'text':
-        x_val = x[:, :config.l_prefix] # [1, l_prefix]
-        # y_val = [_y[:config.l_prefix] for _y in y]
-        y_val = y
-        x_sym = [model.dataset.vocab.get_symbols(_x) for _x in x_val]
-        y_sym = [model.dataset.vocab.get_symbols(_y) for _y in y_val]
-        x_sentences = [' '.join(_x) for _x in x_sym]
-        y_sentences = [' '.join(_y) for _y in y_sym]
-        print('x', x, x_val, x_sym, x_sentences)
-        print('y', y, y_val, y_sym, y_sentences)
-        # breakpoint()
+        # Inspect output manually for now
         
-        # shap.initjs()
+        # [Added code starts]
+        # we need to run the model once first as we do not know y_sym - which is the output_names for the plot
+        x_val = x[:, :config.l_prefix] # [1, l_prefix], list of str-ids
+        y_val = y # [1, l_sample], list of str-ids
+        # y starts from the 2nd input of x, so x[1:] == y[:l_prefix]
+        # we can also get the generated part by
+        # y_val = y[l_prefix:]
+        x_sym = [model.dataset.vocab.get_symbols(_x) for _x in x_val] # list of str
+        y_sym = [model.dataset.vocab.get_symbols(_y) for _y in y_val] # list of str
+        print('x', x.shape, x)
+        print('x_sym', x_sym)
+        print('y', y.shape, y)
+        print('y_sym', y_sym)
         
+        # customized mask function: we need to tokenize the splitted input (or x_val above)
+        # we do not take in the full sentence as what the documentation says, because in transformer, the explainer is default to be the
+        # exact_explainer, which takes in a sequence to sequence generation model and mask out words on the fly
+        # but we - as there is no built-in tokenizer, SHAP would assign permutation_explainer to us, which takes in a splitted input
+        # and randomly mask out word to predict the output's difference
         def mask_func(mask, input):
-            # breakpoint()
-            print('x', input)
-            print('mask', mask)
             tokenized_sentence = model.dataset.vocab.tokenize(' '.join(input))
             input_tensor = model.dataset.vocab.convert_to_tensor(tokenized_sentence)
-            print('x_tensor', input_tensor)
             output = (input_tensor * mask).reshape(1, len(input_tensor))
-            print('output', output)
             return output
         
-        # explainer = shap.Explainer(f, np.array(x_sentences))
-        # shap_values = explainer(np.array(x_sentences))
-        # breakpoint()
+        # the full model to explain
+        def f(input):
+            # print("explainer input", input)
+            # Generate
+            assert config.n_samples % config.n_batch == 0, "For convenience, n_samples should be a multiple of n_batch"
+            batch = (input.repeat(config.n_reps, 1), None, None)
+
+            y, logprobs, _ = generate(
+                    model, # lightning module (SequenceLightningModule from `train.py`)
+                    batch, # pass data to condition the generation
+                    l_prefix=config.l_prefix, # length of conditioning prefix
+                    T=config.l_sample, # length of generated sequence
+                    top_p=config.top_p, # nucleus sampling: always set to 1.0 for SaShiMi experiments
+                    tau=config.temp, # temperature: always set to 1.0 for SaShiMi experiments
+                    return_logprobs=True, # calc exact likelihoods
+            )
+            
+            # Sort based on likelihoods and save
+            y = y[np.argsort(logprobs.flatten())]
+
+            # Decode quantization
+            if config.decode == 'text':
+                # print("explainer output", y.shape, y)
+                return y
+        
+        # output_names is a dictionary to map word (token) to their ids, see
+        # https://shap.readthedocs.io/en/latest/example_notebooks/text_examples/sentiment_analysis/Using%20custom%20functions%20and%20tokenizers.html?highlight=output_names#Create-an-explainer
         labels = sorted(model.dataset.vocab.sym2idx, key=model.dataset.vocab.sym2idx.get)
-        # labels = list(model.dataset.vocab.sym2idx.values())
-        # masker = shap.maskers.Text(tokenize)
-        masker = mask_func
-        # masker = shap.maskers.Text(r"\W")
-        # masker = x_val
+        
         # list of sentences (tensor) -> masker (every sentence -> every sentence masked) -> list of sentences masked -> f -> list of outputs
-        explainer = shap.Explainer(f, masker, output_names=labels, feature_names=None, max_evals=2*config.l_sample+1) #, max_evals=16385)
-        # explainer = shap.explainers.Permutation(f, max_evals = len(model.dataset.vocab) * 2 + 1) # 267735 * 2 + 1
+        # set max_evals to at least 2 * num_of_words_to_generate + 1 - required by permutation_explainer
+        # set higher for better explainability, but takes longer
+        explainer = shap.Explainer(f, masker=mask_func, output_names=labels, feature_names=None, max_evals=2*config.l_sample+1)
+        
+        # permutation_explainer needs to take in pd dataframe, opposed to list of sentences in exact_explainer used in the naive transformer
         import pandas as pd
         df = pd.DataFrame(data=x_sym)
-        print(df)
-        # with open("/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.html", "w") as file:
-        #     file.close()
-        # breakpoint()
-        shap_values = explainer(df, batch_size=1, outputs=y_sym) # x_val[:,:config.l_sample])
+        print('pd', df)
+        
+        # batch_size needs to match sentence size, or explainer cannot find the correct shape
+        shap_values = explainer(df, batch_size=1)
+        
+        # needs to manually set output_names, explainer parameter does not work - as permutation explainer is not supposed to be called 
+        # to text input, the code in `_explainer.py` assumes text input takes in transformer model
+        # and there is no support for handling name matching in `_permutation.py`
         shap_values.output_names = y_sym[0]
+        
+        # token should be splitted for better visualization - auto handled in transformer
         for i in range(1, len(shap_values.data[0])):
             shap_values.data[0][i] = ' ' + shap_values.data[0][i]
-        # print(shap_values) # Inspect output manually for now
-        breakpoint()
+
+        # .values [1, input_len, output_len]
+        # .base_values [1, output_len]
+        # .data = [output_len] - str
+        print('shap_values', shap_values)
+
+        # finally - plot in jupyter notebook
+        # see `_text.py` to debug the plot
         shap.plots.text(shap_values)
-        # breakpoint()
-        # with open("/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.html", "w") as file:
-        #     file.write(html.data)
-        # plt.show()
-        # df_val = pd.DataFrame(data=x, dtype=int)
-        # shap.summary_plot(shap_values[0,:].base_values, x_val[0][None,:])
-        # shap.force_plot(shap_values.base_values, shap_values.values[0,:], df_val.iloc[0,:], show=False, matplotlib=True) \
-        #     .savefig('/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.png')
-        # plt.savefig('/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.png')
-        # plt.show()
-        # plt.close()
+        # [Added code ends]
     else: pass
 
 
