@@ -282,12 +282,13 @@ def main(config: OmegaConf):
             elif config.decode == 'text':
                 # breakpoint()
                 y_val = y
-                y = [model.dataset.vocab.get_symbols(_y) for _y in y]
-                y_sentences = [' '.join(_y) for _y in y]
-                print("shap forward pass done with output", y_val.shape)
+                y_sym = [model.dataset.vocab.get_symbols(_y) for _y in y]
+                y_sentences = [' '.join(_y) for _y in y_sym]
+                print("shap forward pass done with output", y_val.shape, logprobs.shape)
                 # scores = (np.exp(logprobs.flatten()).T / np.exp(logprobs.flatten()).sum(-1)).T
                 # val = sp.special.logit(scores[:,1])
-                return logprobs#[None, :]
+                # breakpoint()
+                return y_val#[None, :]
 
 
     # input, truth, _ = next(iter(dl))
@@ -344,26 +345,27 @@ def main(config: OmegaConf):
             torchaudio.save(filename, d.unsqueeze(0), 16000)
         np.save(f'{save_dir}/unconditional_{config.dataset._name_}_{config.model._name_}_len_{config.l_sample/16000.:.2f}s_logprobs.npy', logprobs)
     elif config.decode == 'text':
-        x_val = [_x[:config.l_prefix] for _x in x]
-        y_val = [_y[:config.l_prefix] for _y in y]
+        x_val = x[:, :config.l_prefix] # [1, l_prefix]
+        # y_val = [_y[:config.l_prefix] for _y in y]
+        y_val = y
+        x_sym = [model.dataset.vocab.get_symbols(_x) for _x in x_val]
+        y_sym = [model.dataset.vocab.get_symbols(_y) for _y in y_val]
+        x_sentences = [' '.join(_x) for _x in x_sym]
+        y_sentences = [' '.join(_y) for _y in y_sym]
+        print('x', x, x_val, x_sym, x_sentences)
+        print('y', y, y_val, y_sym, y_sentences)
         # breakpoint()
-        x = [model.dataset.vocab.get_symbols(_x) for _x in x_val]
-        y = [model.dataset.vocab.get_symbols(_y) for _y in y_val]
-        x_sentences = [' '.join(_x) for _x in x]
-        y_sentences = [' '.join(_y) for _y in y]
-        print('x', x_val, x, x_sentences)
-        print('y', y_val, y, y_sentences)
         
         # shap.initjs()
         
         def mask_func(mask, input):
+            # breakpoint()
             print('x', input)
-            tokenized_sentence = model.dataset.vocab.tokenize(input[0])
-            tensor = model.dataset.vocab.convert_to_tensor(tokenized_sentence)
-            # print('x_tensor', tensor)
-            mask = True
-            output = (tensor * mask).reshape(1, len(tensor))
             print('mask', mask)
+            tokenized_sentence = model.dataset.vocab.tokenize(' '.join(input))
+            input_tensor = model.dataset.vocab.convert_to_tensor(tokenized_sentence)
+            print('x_tensor', input_tensor)
+            output = (input_tensor * mask).reshape(1, len(input_tensor))
             print('output', output)
             return output
         
@@ -377,18 +379,20 @@ def main(config: OmegaConf):
         # masker = shap.maskers.Text(r"\W")
         # masker = x_val
         # list of sentences (tensor) -> masker (every sentence -> every sentence masked) -> list of sentences masked -> f -> list of outputs
-        explainer = shap.Explainer(f, masker, output_names=y[0], feature_names=y[0], max_evals=2*config.l_sample+1) #, max_evals=16385)
+        explainer = shap.Explainer(f, masker, output_names=labels, feature_names=None, max_evals=2*config.l_sample+1) #, max_evals=16385)
         # explainer = shap.explainers.Permutation(f, max_evals = len(model.dataset.vocab) * 2 + 1) # 267735 * 2 + 1
         import pandas as pd
-        df = pd.DataFrame(data=x_sentences)
+        df = pd.DataFrame(data=x_sym)
         print(df)
-        with open("/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.html", "w") as file:
-            file.close()
-        shap_values = explainer(df, batch_size=1) # x_val[:,:config.l_sample])
-        print('success') # Inspect output manually for now
+        # with open("/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.html", "w") as file:
+        #     file.close()
         # breakpoint()
-        shap_values.output_names = y[0]
-        # breakpoint()
+        shap_values = explainer(df, batch_size=1, outputs=y_sym) # x_val[:,:config.l_sample])
+        shap_values.output_names = y_sym[0]
+        for i in range(1, len(shap_values.data[0])):
+            shap_values.data[0][i] = ' ' + shap_values.data[0][i]
+        # print(shap_values) # Inspect output manually for now
+        breakpoint()
         shap.plots.text(shap_values)
         # breakpoint()
         # with open("/home/ys724/S4/State-Space-Interpretability/state-spaces/fig.html", "w") as file:
