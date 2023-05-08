@@ -234,17 +234,23 @@ def main(config: OmegaConf):
             
             # [Added code starts]
             # customized input
-            input_sentence = 'I enjoy walking with my cute dog'
-            tokenized_sentence = model.dataset.vocab.tokenize(input_sentence)
-            x = model.dataset.vocab.convert_to_tensor(tokenized_sentence)
-            x = x[None, :]
-            # we want to predict on the full input this way
-            config.l_prefix = x.shape[1]
-            # and we want the output to be generated after the input
-            config.l_sample += x.shape[1]
+            if config.decode == 'text':
+                # x.shape [1, 8192]
+                input_sentence = '= Gold Dollar = The gold dollar or gold one @-@ dollar piece'
+                tokenized_sentence = model.dataset.vocab.tokenize(input_sentence)
+                x = model.dataset.vocab.convert_to_tensor(tokenized_sentence)
+                x = x[None, :]
+                # we want to predict on the full input this way
+                config.l_prefix = x.shape[1]
+                # and we want the output to be generated after the input
+                config.l_sample += x.shape[1]
+                batch = (x.repeat(config.n_reps, 1), None, None)
+            elif config.decode == 'image':
+                # x.shape [1, 784, 1]
+                x = x[:, :config.l_prefix, :]
+                batch = (x.repeat(config.n_reps, 1, 1), None, None)
+                breakpoint()
             # [Added code ends]
-            
-            batch = (x.repeat(config.n_reps, 1), None, None)
         else:
             batch = (torch.zeros(config.n_batch * config.n_reps, 1).to(torch.long) + 128, None, None)
 
