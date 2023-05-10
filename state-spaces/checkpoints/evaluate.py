@@ -76,6 +76,23 @@ def main(config: OmegaConf):
         trainer.test(model)
 
     # [Added code starts]
+    elif config.decode == 'image-auc':
+        val_dataloaders = model.val_dataloader()
+        loader = val_dataloaders[0] if isinstance(val_dataloaders, list) else val_dataloaders
+
+        model = model.to('cuda')
+        model.eval()
+        batch = next(iter(loader))
+        # batch shape ([50, 784, 1], [50], {})
+        batch_x = (batch[0].cuda(), batch[1].cuda(), batch[2])
+        # batch_y shape ([50, 10], [50], {})
+        batch_y = model(batch_x)
+        # target = batch_x[1].cpu().numpy()
+        from src.tasks.metrics import accuracy, roc_auc_macro
+        acc = accuracy(batch_y[0], batch_y[1])
+        # roc_auc = roc_auc_macro(batch_y[0], batch_y[1])
+        breakpoint()
+    
     elif config.decode == 'image':
         val_dataloaders = model.val_dataloader()
         loader = val_dataloaders[0] if isinstance(val_dataloaders, list) else val_dataloaders

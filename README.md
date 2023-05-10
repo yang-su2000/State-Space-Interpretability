@@ -31,3 +31,6 @@ Investigation of state space model interpretability.
         model=s4 model.n_layers=3 model.d_model=128 model.norm=batch model.prenorm=True \
         checkpoint_path=checkpoints/s4-mnist.ckpt decode=image
     ```
+- evaluate layer-wise importance
+    - select k, k-1 == number of layers to drop
+    - python -m generate experiment=lm/s4-wt103 checkpoint_path=checkpoints/s4-wt103.pt n_samples=1 l_sample=4000 l_prefix=2000 decode=text-auc multiplier=k

@@ -236,7 +236,7 @@ def main(config: OmegaConf):
             # customized input
             if config.decode == 'text':
                 # x.shape [1, 8192]
-                input_sentence = '= Gold Dollar = The gold dollar or gold one @-@ dollar piece'
+                input_sentence = 'The Sinclair Scientific Programmable was introduced'
                 tokenized_sentence = model.dataset.vocab.tokenize(input_sentence)
                 x = model.dataset.vocab.convert_to_tensor(tokenized_sentence)
                 x = x[None, :]
@@ -250,6 +250,8 @@ def main(config: OmegaConf):
                 x = x[:, :config.l_prefix, :]
                 batch = (x.repeat(config.n_reps, 1, 1), None, None)
                 breakpoint()
+            else:
+                batch = (x.repeat(config.n_reps, 1), None, None)
             # [Added code ends]
         else:
             batch = (torch.zeros(config.n_batch * config.n_reps, 1).to(torch.long) + 128, None, None)
@@ -282,16 +284,31 @@ def main(config: OmegaConf):
             filename = f'{save_dir}/unconditional_{config.dataset._name_}_{config.model._name_}_len_{config.l_sample/16000.:.2f}s_gen_{i+1}.wav'
             torchaudio.save(filename, d.unsqueeze(0), 16000)
         np.save(f'{save_dir}/unconditional_{config.dataset._name_}_{config.model._name_}_len_{config.l_sample/16000.:.2f}s_logprobs.npy', logprobs)
-    elif config.decode == 'text':
-        # Inspect output manually for now
+    # [Added code starts]
+    elif config.decode == 'text-auc':
+        x_val = x[:, 1:config.l_sample+1]
+        y_val = y[:, :]
+        x_sym = [model.dataset.vocab.get_symbols(_x) for _x in x_val] # list of str
+        y_sym = [model.dataset.vocab.get_symbols(_y) for _y in y_val] # list of str
+        print('x_sym', x_sym)
+        print('y_sym', y_sym)
+        print(torch.sum(x_val == y_val))
+        import pandas as pd
+        ls = [1 if (x_val[0,i] == y_val[0,i]).item() else 0 for i in range(x_val.shape[1])]
+        if config.multiplier == 1:
+            df = pd.DataFrame(data={'m1': ls})
+        else:
+            df = pd.read_csv("../../../result.csv")
+            df['m' + str(config.multiplier)] = ls
+        df.to_csv("../../../result.csv", index=False)
         
-        # [Added code starts]
+    elif config.decode == 'text':
         # we need to run the model once first as we do not know y_sym - which is the output_names for the plot
         x_val = x[:, :config.l_prefix] # [1, l_prefix], list of str-ids
         y_val = y # [1, l_sample], list of str-ids
         # y starts from the 2nd input of x, so x[1:] == y[:l_prefix]
         # we can also get the generated part by
-        # y_val = y[l_prefix:]
+        # y_val = y[:, config.l_prefix-1:]
         x_sym = [model.dataset.vocab.get_symbols(_x) for _x in x_val] # list of str
         y_sym = [model.dataset.vocab.get_symbols(_y) for _y in y_val] # list of str
         print('x', x.shape, x)
