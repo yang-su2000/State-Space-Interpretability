@@ -1,6 +1,26 @@
 # State-Space-Interpretability
 
-Investigation of state space model interpretability.
+Investigation of state space model interpretability, credit to lydhr and LancasterCT.
+
+### Interpreting Structured State Space Model
+
+- [Paper Report](XML_project_final.pdf)
+
+**Abstract** 
+
+- The structured state space model(SSM) is a novel model that is good at modeling long-range continuous signals.
+This was a hard or even intractable task and taking in long input makes many SOTA models not working.
+Therefore, we are interested in interpreting how the SSM-based model is good at long-range tasks.
+Since we are a group of three, we worked on two SSM-based models on multiple tasks. First, in the recent series
+of work per SSM, the S4 model is an improved version for efficiency. Secondly, the SPACETIME model is a
+variant for predicting the time series autoregressively. We train them on our selected datasets, including time
+series, text, and images. And we interpret the trained model using SHapley Additive exPlanations (SHAP) and
+surrogate model. Finally, we discuss the trustworthiness of the S4 model by conducting a qualitative user study.
+
+**Parallel Repositories**
+
+- [SPACETIME Interpretability GitHub Repo](https://github.com/lydhr/SPACETIME_Finance)
+- [Human Study Data and Analysis Github Repo](https://github.com/LancasterCT/XML_human_study)
 
 ### SHAP Explainer for S4
 
